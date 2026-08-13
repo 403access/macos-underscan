@@ -1,4 +1,4 @@
-# macOS Underscan Fixer: Technical Documentation
+# macOS Underscan Fixer
 
 ## Overview
 
