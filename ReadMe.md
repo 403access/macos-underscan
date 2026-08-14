@@ -1,28 +1,36 @@
-# macOS Underscan Fixer
+# FixDisplay for macOS
 
 ## Overview
 
-On macOS, connecting certain external monitors or TVs via HDMI or DisplayPort adapters can cause dark black borders around the display. This occurs when macOS reads the monitor's EDID broadcast as a "legacy television" and forcibly applies **software underscan** (scaling down the desktop framebuffer to ~80-90%).
+When connecting certain external monitors or TVs via HDMI or DisplayPort adapters, macOS frequently introduces two display degradation issues:
 
-This project bypasses `WindowServer` file persistence overrides by invoking private **QuartzCore (`CADisplay`)** properties and committing a real-time **CoreGraphics** display transaction at runtime.
+1. **Software Underscan (Black Borders):** macOS misinterprets the monitor's EDID payload as a legacy consumer television and forcibly scales down the desktop framebuffer to ~80–90% of native screen bounds.
+2. **Display Mirroring:** macOS defaults to mirroring the primary/built-in display instead of creating an independent, extended desktop space.
+
+`FixDisplay` is a lightweight, native Swift menu bar utility that resolves both issues simultaneously. It bypasses `WindowServer` file persistence overrides by invoking private **QuartzCore (`CADisplay`)** properties and committing an atomic **CoreGraphics** display transaction to force true 1:1 pixel rendering and unmirrored extended desktop mode.
 
 ---
 
 ## Technical Root Cause
 
-When a display communicates with macOS, it sends an **EDID (Extended Display Identification Data)** payload:
+When a display connects to macOS, two separate graphics subsystem behaviors trigger this state:
 
-1. **CEA-861 Extension Block**: If flagged as a consumer electronics display (TV), macOS defaults to scaling the framebuffer down.
-2. **`overscanAdjustment` Property**: QuartzCore sets `overscanAdjustment` to `"scaleContent"`.
-3. **Framebuffer Shrinking**: The desktop surface is scaled down to `0.80 - 0.89`, surrounding the picture with black padding.
+### 1. EDID Misclassification (Underscan)
+The display sends an **EDID (Extended Display Identification Data)** payload to macOS. If the payload contains a **CEA-861 Extension Block** flagging it as a consumer electronics display (TV), `WindowServer` assumes the physical bezel will crop image edges. QuartzCore sets `overscanAdjustment` to `"scaleContent"`, shrinking the desktop framebuffer down to a scalar between `0.80` and `0.89` and padding the display border with solid black pixels.
 
-### Property Matrix
+### 2. Default Mirroring Topology
+When detecting hotplugged monitors or waking from sleep, macOS's display manager often defaults to assigning newly attached display IDs as mirror targets of the main display (`CGConfigureDisplayMirrorOfDisplay`). This mirrors screen contents and forces non-native aspect ratios instead of allocating an independent framebuffer session.
 
-| Property                 | Default (Bugged State) | Fixed State | Description                                |
-| :----------------------- | :--------------------- | :---------- | :----------------------------------------- |
-| **`overscanAmount`**     | `0.8003` – `0.8974`    | `1.0`       | Scalar fraction of physical screen used    |
-| **`overscanAdjustment`** | `"scaleContent"`       | `"none"`    | QuartzCore mode dictating hardware scaling |
-| **`isOverscanned`**      | `true`                 | `false`     | EDID broadcast hardware state              |
+---
+
+## Technical State & Property Matrix
+
+| Layer / Subsystem | Property / API           | Bugged / Default State | Fixed State            | Description                                                                          |
+| :---------------- | :----------------------- | :--------------------- | :--------------------- | :----------------------------------------------------------------------------------- |
+| **QuartzCore**    | `overscanAdjustment`     | `"scaleContent"`       | `"none"`               | Dictates whether software scaling padding is applied                                 |
+| **QuartzCore**    | `overscanAmount`         | `0.8003` – `0.8974`    | `1.0`                  | Scalar fraction of physical display area utilized                                    |
+| **QuartzCore**    | `isOverscanned`          | `true`                 | `false`                | Hardware flag reported by CEA-861 EDID inspection                                    |
+| **CoreGraphics**  | Display Mirroring Target | `masterDisplayID`      | `kCGNullDirectDisplay` | Determines whether the display mirrors another screen or acts as an extended desktop |
 
 ## System Architecture & Workflow
 
