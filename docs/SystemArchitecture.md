@@ -11,11 +11,11 @@ When an external monitor connects via HDMI or DisplayPort:
 
 ---
 
-### 2. OverscanFixer Swift Runtime Execution
+### 2. FixDisplay Swift Runtime Execution
 
 To override this misclassification dynamically without modifying system plist files:
 
-* **Framework Ingestion:** Upon launch, `OverscanFixer` calls `dlopen` to dynamically load `QuartzCore.framework` into memory.
+* **Framework Ingestion:** Upon launch, `FixDisplay` calls `dlopen` to dynamically load `QuartzCore.framework` into memory.
 * **Runtime Reflection:** It reflects active `CADisplay` instances for all connected screens.
 * **Property Override:** It explicitly invokes `setOverscanAdjustment:` with `"none"` across each display object to remove the scaling directive.
 * **Session Transaction:** It opens a transaction via `CGBeginDisplayConfiguration` and commits it with `CGCompleteDisplayConfiguration`.

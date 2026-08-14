@@ -11,19 +11,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
         if let button = statusItem.button {
-            // SF Symbol for displays
-            if let symbol = NSImage(systemSymbolName: "display.2", accessibilityDescription: "Fix Overscan") {
+            if let symbol = NSImage(systemSymbolName: "display.2", accessibilityDescription: "Fix Overscan & Unmirror") {
                 button.image = symbol
             } else {
                 button.title = "🖥️"
             }
-            button.toolTip = "Click to fix monitor overscan"
+            button.toolTip = "Click to fix monitor overscan and switch to extended desktop"
         }
         
         // Build dropdown menu
         let menu = NSMenu()
         
-        let fixItem = NSMenuItem(title: "Fix Display Overscan", action: #selector(applyFix), keyEquivalent: "f")
+        let fixItem = NSMenuItem(title: "Fix Display", action: #selector(applyFix), keyEquivalent: "f")
         fixItem.target = self
         menu.addItem(fixItem)
         
@@ -35,11 +34,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         statusItem.menu = menu
         
-        // Optionally run the fix automatically on startup
+        // Run fix automatically on launch
         applyFix()
     }
 
     @objc func applyFix() {
+        // 1. QuartzCore CADisplay Overscan Fix ("none")
         dlopen("/System/Library/Frameworks/QuartzCore.framework/QuartzCore", RTLD_LAZY)
         
         guard let cls = NSClassFromString("CADisplay") as? NSObject.Type,
@@ -47,7 +47,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Set overscanAdjustment -> "none"
         let selSetAdj = Selector(("setOverscanAdjustment:"))
         for d in displays {
             if d.responds(to: selSetAdj) {
@@ -55,16 +54,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Flush CoreGraphics framebuffers
+        // 2. CoreGraphics Transaction: Unmirror Displays & Flush Framebuffers
         var config: CGDisplayConfigRef?
         if CGBeginDisplayConfiguration(&config) == .success {
+            
+            // Get all connected active displays
+            var displayCount: UInt32 = 0
+            var activeDisplays = [CGDirectDisplayID](repeating: 0, count: 16)
+            
+            if CGGetActiveDisplayList(16, &activeDisplays, &displayCount) == .success {
+                for i in 0..<Int(displayCount) {
+                    let displayID = activeDisplays[i]
+                    
+                    // Passing kCGNullDirectDisplay detaches any active mirroring relationship
+                    // and forces the display into Extended Desktop mode.
+                    CGConfigureDisplayMirrorOfDisplay(config, displayID, kCGNullDirectDisplay)
+                }
+            }
+            
+            // Commit all configuration changes (Overscan + Unmirror) atomically
             _ = CGCompleteDisplayConfiguration(config, .forSession)
         }
         
-        // Flash a quick checkmark on the menu item for feedback
+        // 3. UI Feedback
         if let menu = statusItem.menu, let firstItem = menu.items.first {
             let origTitle = firstItem.title
-            firstItem.title = "✓ Overscan Fixed!"
+            firstItem.title = "✓ Fixed & Unmirrored!"
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 firstItem.title = origTitle
             }

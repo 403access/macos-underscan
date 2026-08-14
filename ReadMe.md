@@ -26,32 +26,32 @@ When a display communicates with macOS, it sends an **EDID (Extended Display Ide
 
 ## System Architecture & Workflow
 
-The flowchart below illustrates how `OverscanFixer` intercepts QuartzCore properties and forces `WindowServer` to flush framebuffers.
+The flowchart below illustrates how `FixDisplay` intercepts QuartzCore properties and forces `WindowServer` to flush framebuffers.
 
 ```mermaid
 flowchart TD
-    subgraph Main ["macOS Underscan Fixer Architecture"]
+    subgraph Main ["FixDisplay System Architecture"]
         direction TD
         
         subgraph Hardware_Layer ["1. Hardware & OS Detection"]
             direction LR
             A["External Monitor Connected"] --> B{"macOS Reads EDID"}
             B -->|CEA-861 Flag| C["overscanAdjustment = scaleContent"]
-            C --> D["Black Borders Applied"]
+            C --> D["Black Borders & Mirroring Active"]
         end
 
-        subgraph Fix_Pipeline ["2. OverscanFixer Swift Runtime Execution"]
+        subgraph Fix_Pipeline ["2. FixDisplay Swift Runtime Execution"]
             direction LR
-            E["OverscanFixer Executable"] --> F["dlopen QuartzCore"]
-            F --> G["Reflect CADisplay"]
-            G --> H["setOverscanAdjustment 'none'"]
-            H --> I["CGBeginDisplayConfiguration"]
+            E["FixDisplay Executable"] --> F["dlopen QuartzCore & Reflect CADisplay"]
+            F --> G["setOverscanAdjustment 'none'"]
+            G --> H["CGGetActiveDisplayList"]
+            H --> I["CGConfigureDisplayMirrorOfDisplay(kCGNullDirectDisplay)"]
             I --> J["CGCompleteDisplayConfiguration"]
         end
 
         subgraph Output_Layer ["3. Render Pipeline Output"]
             direction LR
-            K["WindowServer Flushes Session"] --> L["1:1 Borderless Display"]
+            K["WindowServer Flushes Display Session"] --> L["1:1 Borderless & Extended Desktop"]
         end
 
         Hardware_Layer --> Fix_Pipeline
@@ -67,38 +67,46 @@ The sequence diagram below shows the runtime interaction between the Swift menu 
 sequenceDiagram
     autonumber
     actor User
-    participant App as OverscanFixer App
+    participant App as FixDisplay App
     participant QC as QuartzCore (CADisplay)
     participant CG as CoreGraphics Engine
     participant WS as WindowServer
     participant Display as Physical Display
 
-    User->>App: Clicks "Fix Display Overscan" (or system startup)
-    App->>QC: Read NSClassFromString("CADisplay").displays
-    QC-->>App: Return list of active CADisplay instances
+    User->>App: Clicks "Fix Display & Extended Mode" (or auto-launch)
     
-    loop For each CADisplay instance
-        App->>QC: perform(Selector("setOverscanAdjustment:"), with: "none")
-        Note over QC: Mode changes from "scaleContent" -> "none"
+    rect rgb(30, 40, 60)
+        Note over App,QC: 1. Overscan Fix
+        App->>QC: Read NSClassFromString("CADisplay").displays
+        QC-->>App: Return list of active CADisplay instances
+        loop For each CADisplay instance
+            App->>QC: perform("setOverscanAdjustment:", with: "none")
+        end
     end
 
-    App->>CG: CGBeginDisplayConfiguration(&config)
-    CG-->>App: Return .success
-    App->>CG: CGCompleteDisplayConfiguration(config, .forSession)
-    
-    CG->>WS: Push transactional display update
-    WS->>Display: Re-allocate framebuffers & output 1:1 pixel stream
-    Note over Display: Full 100% borderless display active
+    rect rgb(40, 60, 40)
+        Note over App,CG: 2. Unmirror & Atomic Commit
+        App->>CG: CGBeginDisplayConfiguration(&config)
+        App->>CG: CGGetActiveDisplayList()
+        loop For each active display ID
+            App->>CG: CGConfigureDisplayMirrorOfDisplay(config, id, kCGNullDirectDisplay)
+        end
+        App->>CG: CGCompleteDisplayConfiguration(config, .forSession)
+    end
+
+    CG->>WS: Push combined overscan + unmirror display update
+    WS->>Display: Re-allocate framebuffers & detach mirror stream
+    Note over Display: 100% unscaled 1:1 extended desktop display active
 ```
 
 ## Compilation & Installation
 
 ### 1. Build Executable
 
-Compile the Swift source file using `swiftc`:
+Compile the Swift source file into the `FixDisplay` binary:
 
 ```bash
-swiftc -O OverscanFixerApp.swift -o OverscanFixer
+swiftc -O FixDisplayApp.swift -o FixDisplay
 ```
 
 ### 2. Auto-Start at Login
@@ -108,7 +116,7 @@ swiftc -O OverscanFixerApp.swift -o OverscanFixer
 1. Move the compiled binary to a stable folder (e.g., `~/Applications/` or `/usr/local/bin/`).
 2. Open **System Settings > General > Login Items & Extensions**.
 3. Under **Open at Login**, click the **`+`** button.
-4. Select the `OverscanFixer` binary and confirm.
+4. Select the `FixDisplay` binary and confirm.
 
 ---
 
@@ -118,10 +126,10 @@ swiftc -O OverscanFixerApp.swift -o OverscanFixer
 
 ```bash
 sudo mkdir -p /usr/local/bin
-sudo cp OverscanFixer /usr/local/bin/
+sudo cp FixDisplay /usr/local/bin/
 ```
 
-2. Create ~/Library/LaunchAgents/com.user.overscanfixer.plist:
+2. Create ~/Library/LaunchAgents/com.user.fixdisplay.plist:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -129,10 +137,10 @@ sudo cp OverscanFixer /usr/local/bin/
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.user.overscanfixer</string>
+    <string>com.user.fixdisplay</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/OverscanFixer</string>
+        <string>/usr/local/bin/FixDisplay</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -145,7 +153,7 @@ sudo cp OverscanFixer /usr/local/bin/
 3. Load and activate the service:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.user.overscanfixer.plist
+launchctl load ~/Library/LaunchAgents/com.user.fixdisplay.plist
 ```
 
 ## Uninstallation & Removal
@@ -154,9 +162,9 @@ To completely remove the utility and background daemon:
 
 ```bash
 # 1. Unload LaunchAgent
-launchctl unload ~/Library/LaunchAgents/com.user.overscanfixer.plist 2>/dev/null
+launchctl unload ~/Library/LaunchAgents/com.user.fixdisplay.plist 2>/dev/null
 
 # 2. Delete configuration and executable
-rm -f ~/Library/LaunchAgents/com.user.overscanfixer.plist
-sudo rm -f /usr/local/bin/OverscanFixer
+rm -f ~/Library/LaunchAgents/com.user.fixdisplay.plist
+sudo rm -f /usr/local/bin/fixdisplay
 ```

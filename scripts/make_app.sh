@@ -1,1 +1,1 @@
-swiftc -O ./src/OverscanFixerApp.swift -o ./bin/OverscanFixer
+swiftc -O ./src/FixDisplayApp.swift -o ./bin/FixDisplay

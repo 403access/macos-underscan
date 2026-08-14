@@ -1,1 +1,1 @@
-./bin/OverscanFixer &
+./bin/FixDisplay &
